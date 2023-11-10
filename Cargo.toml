@@ -38,5 +38,3 @@ tokio-stream = "0.1.14"
 serial_test = "*"
 tokio-test = "*"
 
-[[bin]]
-name = "main"

@@ -4,8 +4,6 @@ use tokio_stream::{self as stream, StreamExt as TokioStreamExt};
 use crate::{errors::AppError, cron::CronSchedule};
 use aws_sdk_scheduler::{Client, types::{FlexibleTimeWindow, Target}, operation::get_schedule::GetScheduleOutput};
 
-use super::ScheduledTask;
-
 pub struct EventBridgeScheduler {
     client: Client,
     name_prefix: String,
@@ -59,8 +57,8 @@ impl EventBridgeScheduler {
                 .description("{datetime: <readable date time using original timezone>, datetime_utc, original_cron }")
                 .schedule_expression(format!("at({})", next_task_schedule.next_datetime.format("%FT%T")))
                 .schedule_expression_timezone(format!("{}", next_task_schedule.timezone))
-                .flexible_time_window(FlexibleTimeWindow::builder().mode(aws_sdk_scheduler::types::FlexibleTimeWindowMode::Off).build())
-                .target(Target::builder().arn(&self.lambda_arn).role_arn(&self.lambda_role).build())
+                .flexible_time_window(FlexibleTimeWindow::builder().mode(aws_sdk_scheduler::types::FlexibleTimeWindowMode::Off).build().unwrap())
+                .target(Target::builder().arn(&self.lambda_arn).role_arn(&self.lambda_role).build().unwrap())
                 .send()
                 .await?;
             next_schedule_timestamp = next_task_schedule.next_timestamp_utc;
@@ -97,10 +95,10 @@ impl EventBridgeScheduler {
             next_scheduled_timestamp_utc: timestamp,
             schedule_id: None,
 
-            expression: schedule.schedule_expression().and_then(|s| Some(s.to_string())),
-            expression_timezone: schedule.schedule_expression_timezone().and_then(|s| Some(s.to_string())),
-            target: schedule.target().and_then(|s| s.arn().map(|s| s.to_string())),
-            description: schedule.description().and_then(|s| Some(s.to_string())),
+            expression: schedule.schedule_expression().map(|s| s.to_string()),
+            expression_timezone: schedule.schedule_expression_timezone().map(|s| s.to_string()),
+            target: schedule.target().map(|s| s.arn.clone()),
+            description: schedule.description().map(|s| s.to_string()),
         }
     }
 
@@ -133,16 +131,18 @@ impl EventBridgeScheduler {
     async fn list_schedules(&self) -> Result<Vec<GetScheduleOutput>, AppError> {
         println!("list schedules in aws eventbridge scheduler");
 
-        let paginator = self.client
+        let schedule_summaries: Result<Vec<_>, _> = self.client
             .list_schedules()
             .name_prefix(&self.name_prefix)
             .into_paginator()
             .items()
-            .send();
+            .send()
+            .collect()
+            .await;
 
-        let schedule_summaries = TokioStreamExt::collect::<Result<Vec<_>, _>>(paginator).await?;
+        // let schedule_summaries = TokioStreamExt::collect::<Result<Vec<_>, _>>(paginator).await?;
         
-        let schedules: Vec<GetScheduleOutput> = stream::iter(schedule_summaries).then(|schedule| async move {
+        let schedules: Vec<GetScheduleOutput> = stream::iter(schedule_summaries?).then(|schedule| async move {
             let x = self.client.get_schedule()
                 .name(schedule.name().expect("name doesn't exists"))
                 .send()
@@ -212,9 +212,9 @@ mod tests {
                 item.name,
                 item.schedule_expression.as_ref(),
                 item.schedule_expression_timezone.as_ref(),
-                item.target.as_ref().and_then(|t| t.arn()),
-                item.target.as_ref().and_then(|t| t.role_arn()),
-                item.flexible_time_window.as_ref().and_then(|w| w.mode()),
+                item.target.as_ref().map(|t| t.arn()),
+                item.target.as_ref().map(|t| t.role_arn()),
+                item.flexible_time_window.as_ref().map(|w| w.mode()),
                 item.description(),
             );
         }
@@ -235,9 +235,9 @@ mod tests {
                 item.name,
                 item.schedule_expression.as_ref(),
                 item.schedule_expression_timezone.as_ref(),
-                item.target.as_ref().and_then(|t| t.arn()),
-                item.target.as_ref().and_then(|t| t.role_arn()),
-                item.flexible_time_window.as_ref().and_then(|w| w.mode()),
+                item.target.as_ref().map(|t| t.arn()),
+                item.target.as_ref().map(|t| t.role_arn()),
+                item.flexible_time_window.as_ref().map(|w| w.mode()),
                 item.description(),
             );
         }

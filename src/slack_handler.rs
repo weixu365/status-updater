@@ -4,14 +4,13 @@ use aws_lambda_events::{event::apigw::ApiGatewayProxyResponse, encodings::Body, 
 use chrono::{Local, Utc};
 use chrono_tz::Tz;
 use std::str::FromStr;
-use crate::{scheduled_tasks::{ScheduledTask, ScheduledTasksDynamodb, EventBridgeScheduler}, cron::get_next_schedule_from, secrets::SecretsClient, encryption::Encryption, errors::AppError, build_http_client, service_provider::slack::{swap_slack_access_token, Slack}, db::{SlackInstallation, SlackInstallationsDynamoDb}, config::Config};
+use crate::{scheduled_tasks::{ScheduledTask, ScheduledTasksDynamodb, EventBridgeScheduler}, cron::get_next_schedule_from, secrets::SecretsClient, encryption::Encryption, errors::AppError, build_http_client, service_provider::slack::swap_slack_access_token, db::{SlackInstallation, SlackInstallationsDynamoDb}, config::Config};
 use form_urlencoded;
 use ring::hmac;
 use clap::{Args, Subcommand};
 use clap::Parser;
 use lazy_static::lazy_static;
 use regex::Regex;
-use serde_json::json;
 
 #[derive(Parser, Debug)]
 #[command(author, version, about, long_about = None)]
@@ -125,7 +124,7 @@ pub async fn handle_slack_command(env: &str, request_header: HeaderMap<HeaderVal
     let user_name = get_param(&params, "user_name");
     let command = get_param(&params, "command");
     let text = get_param(&params, "text");
-    let response_url = get_param(&params, "response_url");
+    let _response_url = get_param(&params, "response_url");
     let slack_request_timestamp_str = request_header.get("X-Slack-Request-Timestamp").map(|v| v.to_str())
         .expect("Missing X-Slack-Request-Timestamp")?;
     let slack_request_signature = request_header.get("X-Slack-Signature").map(|v| v.to_str())

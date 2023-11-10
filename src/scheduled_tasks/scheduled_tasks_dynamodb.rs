@@ -2,9 +2,8 @@ use std::collections::HashMap;
 
 use aws_config::SdkConfig;
 use aws_sdk_dynamodb::{Client, types::AttributeValue};
-use chrono::Utc;
 
-use crate::{errors::AppError, encryption::{Encryption, EncryptedData}, timestamp};
+use crate::{errors::AppError, encryption::{Encryption, EncryptedData}};
 
 use super::scheduled_task::ScheduledTask;
 
@@ -28,7 +27,7 @@ impl ScheduledTasksDynamodb {
         let encrypted_pagerduty_token = self.encryption.encrypt(&t.pager_duty_token).expect("Failed to encrypt PagerDuty api key");
         let encrypted_pagerduty_token_json = serde_json::to_string(&encrypted_pagerduty_token).unwrap();
 
-        let mut builder = self.client
+        let builder = self.client
             .put_item()
             .table_name(&self.table_name)
             .item("team", AttributeValue::S(t.team))
@@ -83,7 +82,7 @@ impl ScheduledTasksDynamodb {
         Ok(())
     }
    
-    pub async fn list_scheduled_tasks_in_workspace(&self, workspace_id: &String, workspace_name: &String) -> Result<(), AppError> {
+    pub async fn list_scheduled_tasks_in_workspace(&self, _workspace_id: &String, _workspace_name: &String) -> Result<(), AppError> {
         // let stream = self.client
         //     .query()
         //     .table_name(&self.table_name)
