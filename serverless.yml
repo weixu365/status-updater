@@ -1,0 +1,173 @@
+service: on-call-support
+provider:
+  name: aws
+  runtime: provided.al2
+  memorySize: 128
+  stage: dev
+  region: ap-southeast-2
+  stackTags:
+    Name: On-Call Support Slack Bot
+    Stream: AIPS
+    Project: on-call-support-slack-bot
+    Owner: Knowledge_Graph_Delivery@seek.com.au
+    ServiceName: ${self:service}
+    Environment: ${self:provider.stage}
+    seek:data:types:internal: ontology
+    seek:data:consumers: internal
+    seek:source:url: https://github.com/SEEK-oss/on-call-support-slack-bot/
+  deploymentBucket:
+    tags:
+      seek:data:types:internal: system-artefacts
+      seek:data:consumers: internal
+      seek:source:url: https://github.com/SEEK-oss/on-call-support-slack-bot/
+
+  iam:
+    role: LambdaRole
+      
+package:
+  individually: true
+
+functions:
+  # handler value syntax is `{cargo-package-name}.{bin-name}`
+  # or `{cargo-package-name}` for short when you are building a
+  # default bin for a given package.
+
+  UpdateUserGroups:
+    handler: on-call-support.update_user_groups_lambda
+    environment:
+      UPDATE_USER_GROUP_LAMBDA: !Sub "arn:aws:lambda:${AWS::Region}:${AWS::AccountId}:function:${AWS::StackName}-UpdateUserGroups"
+      UPDATE_USER_GROUP_LAMBDA_ROLE: !GetAtt LambdaRole.Arn
+    package:
+      artifact: target/lambda/update_user_groups_lambda.zip
+    maximumRetryAttempts: 2
+    timeout: 900
+
+  SlackRequestHandler:
+    handler: on-call-support.slack_request_handler_lambda
+    environment: 
+      UPDATE_USER_GROUP_LAMBDA: !Sub "arn:aws:lambda:${AWS::Region}:${AWS::AccountId}:function:${AWS::StackName}-UpdateUserGroups"
+      UPDATE_USER_GROUP_LAMBDA_ROLE: !GetAtt LambdaRole.Arn
+    package:
+      artifact: target/lambda/slack_request_handler_lambda.zip
+    events:
+      - http:
+          path: slack/command
+          method: any
+      - http:
+          path: slack/oauth
+          method: any
+
+  # UpdateUserGroup:
+  #   handler: on-call-support.update_user_group_mk_lambda
+  #   environment:
+  #     UPDATE_USER_GROUP_LAMBDA: !Sub "${AWS::StackName}-UpdateUserGroups"
+  #   package:
+  #     artifact: target/lambda/update_user_group_mk_lambda.zip
+  #   maximumRetryAttempts: 0
+    # events:
+    #   - schedule:
+    #       method: scheduler
+    #       rate: cron(0 9 ? * MON-FRI *)
+    #       timezone: Australia/Melbourne
+    #       enabled: false
+
+resources:
+  Resources:
+    OnCallSupportScheduledTasks:
+      Type: AWS::DynamoDB::Table
+      Properties:
+        TableName: 'on-call-support-schedules-${self:provider.stage}'
+        AttributeDefinitions:
+          - AttributeName: team
+            AttributeType: S
+          - AttributeName: task_id
+            AttributeType: S
+
+        BillingMode: PAY_PER_REQUEST
+        KeySchema:
+          - AttributeName: team
+            KeyType: HASH
+          - AttributeName: task_id
+            KeyType: RANGE
+
+    OnCallSupportInstallations:
+      Type: AWS::DynamoDB::Table
+      Properties:
+        TableName: 'on-call-support-installations-${self:provider.stage}'
+        AttributeDefinitions:
+          - AttributeName: id
+            AttributeType: S
+
+        BillingMode: PAY_PER_REQUEST
+        KeySchema:
+          - AttributeName: id
+            KeyType: HASH
+
+    LambdaRole:
+      Type: AWS::IAM::Role
+      Properties:
+        AssumeRolePolicyDocument:
+          Version: '2012-10-17'
+          Statement:
+            - Effect: Allow
+              Principal:
+                Service:
+                  - lambda.amazonaws.com
+                  - scheduler.amazonaws.com
+              Action: sts:AssumeRole
+        Policies:
+          - PolicyName: LamdaRolePolicy
+            PolicyDocument:
+              Version: '2012-10-17'
+              Statement:
+                - Effect: Allow
+                  Action:
+                    - logs:CreateLogStream
+                    - logs:CreateLogGroup
+                    - logs:TagResource
+                  Resource:
+                    - !Sub "arn:aws:logs:${AWS::Region}:${AWS::AccountId}:log-group:/aws/lambda/${AWS::StackName}*:*"
+                - Effect: Allow
+                  Action:
+                    - logs:PutLogEvents
+                  Resource:
+                    - !Sub "arn:aws:logs:${AWS::Region}:${AWS::AccountId}:log-group:/aws/lambda/${AWS::StackName}*:*:*"
+
+                - Effect: Allow
+                  Action:
+                    - dynamodb:DeleteItem
+                    - dynamodb:GetItem
+                    - dynamodb:PutItem
+                    - dynamodb:Query
+                    - dynamodb:Scan
+                    - dynamodb:UpdateItem
+                  Resource:
+                    - "arn:aws:dynamodb:*:*:table/on-call-support-schedules-${self:provider.stage}"
+                    - "arn:aws:dynamodb:*:*:table/on-call-support-schedules-${self:provider.stage}/index/*"
+                    - "arn:aws:dynamodb:*:*:table/on-call-support-installations-${self:provider.stage}"
+                    - "arn:aws:dynamodb:*:*:table/on-call-support-installations-${self:provider.stage}/index/*"
+
+                - Effect: Allow
+                  Action:
+                    - secretsmanager:GetSecretValue
+                  Resource:
+                    - !Sub "arn:aws:secretsmanager:${self:provider.region}:${AWS::AccountId}:secret:on-call-support/secrets*"
+
+                - Effect: Allow
+                  Action:
+                    - "scheduler:*"
+                  Resource:
+                    - "arn:aws:scheduler:*:*:schedule/*/*"
+                    - "arn:aws:scheduler:*:*:schedule/*/on-call-support-${self:provider.stage}_UpdateUserGroupSchedule_*"
+                - Effect: Allow
+                  Action:
+                    - "iam:PassRole"
+                  Resource:
+                    - !Sub "arn:aws:iam::*:role/${AWS::StackName}-LambdaRole-*"
+
+                - Effect: Allow
+                  Action:
+                    - "lambda:InvokeFunction"
+                  Resource:
+                    - !Sub "arn:aws:lambda:${self:provider.region}:${AWS::AccountId}:function:on-call-support-${self:provider.stage}-UpdateUserGroups"
+                    - !Sub "arn:aws:lambda:${self:provider.region}:${AWS::AccountId}:function:on-call-support-${self:provider.stage}-UpdateUserGroups:*"

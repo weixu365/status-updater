@@ -1,0 +1,22 @@
+{
+  "name": "status-updater",
+  "version": "1.0.0",
+  "description": "Update service status based on the state of other services.",
+  "main": "index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/weixu365/status-updater.git"
+  },
+  "author": "",
+  "license": "ISC",
+  "bugs": {
+    "url": "https://github.com/weixu365/status-updater/issues"
+  },
+  "homepage": "https://github.com/weixu365/status-updater#readme",
+  "devDependencies": {
+    "serverless": "^3.32.2"
+  }
+}
