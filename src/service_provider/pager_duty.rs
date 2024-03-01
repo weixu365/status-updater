@@ -39,7 +39,7 @@ impl PagerDuty {
         );
 
         let since = self.format_datetime(&from);
-        let until = self.format_datetime(&(from + Duration::hours(1)));
+        let until = self.format_datetime(&(from + Duration::minutes(10)));
 
         let response = self.http_client
             .get(&url)

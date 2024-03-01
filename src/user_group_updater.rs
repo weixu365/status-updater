@@ -64,7 +64,8 @@ pub async fn update_user_group(
     
     if slack_user_ids != current_users {
         println!("Send message to channel");
-        slack.send_message(&slack_channel_id, &format!("Updated support user group <!subteam^{}> to: <@{}>", &user_group.id, slack_user_ids.join(", "))).await?;
+        let slack_users = slack_user_ids.iter().map(|id| format!("<@{}>", id)).collect::<Vec<String>>().join(", ");
+        slack.send_message(&slack_channel_id, &format!("Updated support user group <!subteam^{}> to: {}", &user_group.id, slack_users)).await?;
     }
 
     Ok(())
