@@ -188,7 +188,7 @@ mod tests {
             user_group_id: "".to_string(),
             user_group_handle: "".to_string(),
             pager_duty_schedule_id: "".to_string(),
-            pager_duty_token: "".to_string(),
+            pager_duty_token: None,
             cron: "0 5 ? * MON-FRI *".to_string(),
             timezone: "Australia/Melbourne".to_string(),
 

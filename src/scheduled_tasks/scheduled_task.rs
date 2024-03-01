@@ -22,7 +22,7 @@ pub struct ScheduledTask {
     pub user_group_id: String,
     pub user_group_handle: String,
     pub pager_duty_schedule_id: String,
-    pub pager_duty_token: String,
+    pub pager_duty_token: Option<String>,
     pub cron: String,
     pub timezone: String,
     

@@ -14,7 +14,7 @@ async fn create_db() -> Result<ScheduledTasksDynamodb, AppError> {
 }
 
 #[tokio::test]
-async fn save_scheduled_task_to_db() -> Result<(), AppError> {
+async fn save_scheduled_task_with_pagerduty_token_to_db() -> Result<(), AppError> {
     let task = ScheduledTask {
         team: "test_team_workspace".to_string(),
         task_id: "task_id".to_string(),
@@ -32,7 +32,42 @@ async fn save_scheduled_task_to_db() -> Result<(), AppError> {
         user_group_id: "user_group_id".to_string(),
         user_group_handle: "user_group_handle".to_string(),
         pager_duty_schedule_id: "pager_duty_schedule_id".to_string(),
-        pager_duty_token: "pager_duty_token".to_string(),
+        pager_duty_token: None,
+        cron: "cron".to_string(),
+        timezone: "timezone".to_string(),
+
+        created_by_user_id: "U6HHP84N9".to_string(),
+        created_by_user_name: "test-user".to_string(),
+        created_at: Utc::now().to_rfc3339(),
+        last_updated_at: Utc::now().to_rfc3339(),
+    };
+    
+    let db = create_db().await?;
+    db.save_scheduled_task(&task).await?;
+    
+    Ok(())
+}
+
+#[tokio::test]
+async fn save_scheduled_task_without_pagerduty_token_to_db() -> Result<(), AppError> {
+    let task = ScheduledTask {
+        team: "test_team_workspace".to_string(),
+        task_id: "task_id".to_string(),
+        next_update_timestamp_utc: Utc::now().timestamp(),
+        next_update_time: Utc::now().timestamp().to_string(),
+
+        team_id: format!("workspace_id"),
+        team_domain: "team_domain".to_string(),
+        channel_id: "channel_id".to_string(),
+        channel_name: "channel_name".to_string(),
+        enterprise_id: "enterprise_id".to_string(),
+        enterprise_name: "enterprise_name".to_string(),
+        is_enterprise_install: false,
+
+        user_group_id: "user_group_id".to_string(),
+        user_group_handle: "user_group_handle".to_string(),
+        pager_duty_schedule_id: "pager_duty_schedule_id".to_string(),
+        pager_duty_token: Some("pager_duty_token".to_string()),
         cron: "cron".to_string(),
         timezone: "timezone".to_string(),
 

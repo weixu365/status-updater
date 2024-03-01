@@ -14,4 +14,6 @@ pub struct SlackInstallation {
     pub authed_user_id: String,
     pub app_id: String,
     pub bot_user_id: String,
+
+    pub pager_duty_token: Option<String>,
 }

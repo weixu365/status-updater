@@ -28,7 +28,7 @@ struct ScheduleArgs {
     pagerduty_schedule: String,
 
     #[arg(long)]
-    pagerduty_api_key: String,
+    pagerduty_api_key: Option<String>,
 
     #[arg(long)]
     cron: String,
@@ -38,7 +38,7 @@ struct ScheduleArgs {
 }
 
 #[derive(Debug, Args)]
-struct SetupPagerDutyArgs {
+struct SetupPagerdutyArgs {
     #[arg(long)]
     pagerduty_api_key: String,
 }
@@ -46,7 +46,7 @@ struct SetupPagerDutyArgs {
 #[derive(Debug, Subcommand)]
 enum Command {
     Schedule(ScheduleArgs),
-    SetupPagerDuty(SetupPagerDutyArgs),
+    SetupPagerduty(SetupPagerdutyArgs),
     List,
     New,
 }
@@ -97,6 +97,8 @@ pub async fn handle_slack_oauth(env: &str, query_map: QueryMap) -> Result<ApiGat
                 authed_user_id: oauth_response.authed_user.id,
                 app_id: oauth_response.app_id,
                 bot_user_id: oauth_response.bot_user_id,
+
+                pager_duty_token: None,
             };
 
             db.save_slack_installation(&installation).await?;
@@ -257,7 +259,7 @@ pub async fn handle_slack_command(env: &str, request_header: HeaderMap<HeaderVal
             
             format!("Update user group: {}|{} based on pagerduty schedule: {}, at: {}", task.user_group_id, task.user_group_handle, &task.pager_duty_schedule_id, &task.cron)
         },
-        Some(Command::SetupPagerDuty(args)) => {
+        Some(Command::SetupPagerduty(args)) => {
             let config = Config::new(env);
             let slack_installations_db = SlackInstallationsDynamoDb::new(&aws_config, config.installations_table_name, encryption.clone());
 

@@ -1,9 +1,8 @@
-use std::collections::HashMap;
-
 use aws_config::SdkConfig;
 use aws_sdk_dynamodb::{Client, types::AttributeValue};
 
 use crate::{errors::AppError, encryption::{Encryption, EncryptedData}};
+use crate::db::dynamodb_client::{get_attribute, get_optional_attribute};
 
 use super::scheduled_task::ScheduledTask;
 
@@ -24,8 +23,12 @@ impl ScheduledTasksDynamodb {
 
     pub async fn save_scheduled_task(&self, task: &ScheduledTask) -> Result<(), AppError> {
         let t = task.clone();
-        let encrypted_pagerduty_token = self.encryption.encrypt(&t.pager_duty_token).expect("Failed to encrypt PagerDuty api key");
-        let encrypted_pagerduty_token_json = serde_json::to_string(&encrypted_pagerduty_token).unwrap();
+
+        let encrypted_pagerduty_token_json = t.pager_duty_token
+            .map(|token| self.encryption.encrypt(&token).expect("Failed to encrypt PagerDuty api key"))
+            .map(|encrypted| serde_json::to_string(&encrypted).unwrap())
+            .unwrap_or_default()
+        ;
 
         let builder = self.client
             .put_item()
@@ -55,7 +58,7 @@ impl ScheduledTasksDynamodb {
             .item("created_at", AttributeValue::S(t.created_at))
             .item("last_updated_at", AttributeValue::S(t.last_updated_at))
         ;
-    
+
         println!("Saving task {} with the next schedule at {}", task.task_id, task.next_update_time);
         builder.send().await?;
         
@@ -111,20 +114,6 @@ impl ScheduledTasksDynamodb {
             
         Ok(())
     }
-      
-    fn get_attribute(&self, item: &HashMap<String, AttributeValue>, name: &str) -> String {
-        item
-            .get(name)
-            .and_then(|attr| 
-                if attr.is_n() {
-                    attr.as_n().ok()
-                } else {
-                    attr.as_s().ok()
-                }
-            )
-            .expect(format!("field {} is null", name).as_str())
-            .clone()
-    }
 
     pub async fn list_scheduled_tasks(&self) -> Result<Vec<ScheduledTask>, AppError> {
         let scan_output = self.client
@@ -136,35 +125,44 @@ impl ScheduledTasksDynamodb {
         let items: Vec<ScheduledTask> = scan_output.items.unwrap_or_else(Vec::new)
             .into_iter()
             .map(|item| {
-                let pagerduty_token_json = self.get_attribute(&item, "pager_duty_token");
-                let encrypted_pagerduty_token: EncryptedData = serde_json::from_str(&pagerduty_token_json).expect("couldn't parse encrypted pagerduty token json");
-                let pager_duty_token = self.encryption.decrypt(&encrypted_pagerduty_token).expect("failed to decrypt pagerduty token");
+                let pager_duty_token = get_optional_attribute(&item, "pager_duty_token").map(|encrypted_token_json| 
+                    if encrypted_token_json.is_empty() {
+                        None
+                    } else {
+                        let encrypted_token: EncryptedData = serde_json::from_str(&encrypted_token_json).expect("couldn't parse encrypted pagerduty token json");
+
+                        Some(self.encryption.decrypt(&encrypted_token).expect("failed to decrypt pagerduty token"))
+                    }
+                ).flatten();
+
+                // let encrypted_pagerduty_token: EncryptedData = serde_json::from_str(&pagerduty_token_json).expect("couldn't parse encrypted pagerduty token json");
+                // let pager_duty_token = self.encryption.decrypt(&encrypted_pagerduty_token).expect("failed to decrypt pagerduty token");
 
                 ScheduledTask {
-                    team: self.get_attribute(&item, "team"),
-                    task_id: self.get_attribute(&item, "task_id"),
-                    next_update_timestamp_utc: self.get_attribute(&item, "next_update_timestamp_utc").parse::<i64>().unwrap(),
-                    next_update_time: self.get_attribute(&item, "next_update_time"),
+                    team: get_attribute(&item, "team"),
+                    task_id: get_attribute(&item, "task_id"),
+                    next_update_timestamp_utc: get_attribute(&item, "next_update_timestamp_utc").parse::<i64>().unwrap(),
+                    next_update_time: get_attribute(&item, "next_update_time"),
 
-                    team_id: self.get_attribute(&item, "team_id"),
-                    team_domain: self.get_attribute(&item, "team_domain"),
-                    channel_id: self.get_attribute(&item, "channel_id"),
-                    channel_name: self.get_attribute(&item, "channel_name"),
-                    enterprise_id: self.get_attribute(&item, "enterprise_id"),
-                    enterprise_name: self.get_attribute(&item, "enterprise_name"),
-                    is_enterprise_install: self.get_attribute(&item, "is_enterprise_install").eq_ignore_ascii_case("true"),
+                    team_id: get_attribute(&item, "team_id"),
+                    team_domain: get_attribute(&item, "team_domain"),
+                    channel_id: get_attribute(&item, "channel_id"),
+                    channel_name: get_attribute(&item, "channel_name"),
+                    enterprise_id: get_attribute(&item, "enterprise_id"),
+                    enterprise_name: get_attribute(&item, "enterprise_name"),
+                    is_enterprise_install: get_attribute(&item, "is_enterprise_install").eq_ignore_ascii_case("true"),
 
-                    user_group_id: self.get_attribute(&item, "user_group_id"),
-                    user_group_handle: self.get_attribute(&item, "user_group_handle"),
-                    pager_duty_schedule_id: self.get_attribute(&item, "pager_duty_schedule_id"),
+                    user_group_id: get_attribute(&item, "user_group_id"),
+                    user_group_handle: get_attribute(&item, "user_group_handle"),
+                    pager_duty_schedule_id: get_attribute(&item, "pager_duty_schedule_id"),
                     pager_duty_token,
-                    cron: self.get_attribute(&item, "cron"),
-                    timezone: self.get_attribute(&item, "timezone"),
+                    cron: get_attribute(&item, "cron"),
+                    timezone: get_attribute(&item, "timezone"),
 
-                    created_by_user_id: self.get_attribute(&item, "created_by_user_id"),
-                    created_by_user_name: self.get_attribute(&item, "created_by_user_name"),
-                    created_at: self.get_attribute(&item, "created_at"),
-                    last_updated_at: self.get_attribute(&item, "last_updated_at"),
+                    created_by_user_id: get_attribute(&item, "created_by_user_id"),
+                    created_by_user_name: get_attribute(&item, "created_by_user_name"),
+                    created_at: get_attribute(&item, "created_at"),
+                    last_updated_at: get_attribute(&item, "last_updated_at"),
                 }
             })
             .collect();

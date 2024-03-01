@@ -1,7 +1,7 @@
 use std::{sync::Arc, collections::HashMap, env};
 
 use futures::StreamExt;
-use crate::{scheduled_tasks::{ScheduledTasksDynamodb, EventBridgeScheduler}, secrets::SecretsClient, encryption::Encryption, db::SlackInstallationsDynamoDb, config::Config};
+use crate::{config::Config, db::{SlackInstallation, SlackInstallationsDynamoDb}, encryption::Encryption, scheduled_tasks::{EventBridgeScheduler, ScheduledTasksDynamodb}, secrets::SecretsClient};
 
 use chrono::{Utc, Duration, DateTime};
 use reqwest::Client;
@@ -86,9 +86,9 @@ pub async fn update_user_groups(env: &str) -> Result<(), AppError> {
     let encryption = Encryption::new(&encryption_key.encryption_key);
 
     let slack_installations_db = SlackInstallationsDynamoDb::new(&aws_config, config.installations_table_name, encryption.clone());
-    let slack_tokens: HashMap<String, String> = slack_installations_db.list_installations().await?
+    let slack_tokens: HashMap<String, SlackInstallation> = slack_installations_db.list_installations().await?
         .into_iter()
-        .map(|i| (i.team_id, i.access_token))
+        .map(|i| (i.team_id.clone(), i))
         .collect();
     let scheduled_tasks_db = ScheduledTasksDynamodb::new(&aws_config, config.schedules_table_name, encryption.clone());
 
@@ -102,15 +102,19 @@ pub async fn update_user_groups(env: &str) -> Result<(), AppError> {
         if task.next_update_timestamp_utc > 0 && task.next_update_timestamp_utc <= Utc::now().timestamp() {
             println!("Updating user group for task {}, scheduled at: {}", task.task_id, task.cron);
 
-            let slack_api_key = slack_tokens.get(&task.team_id)
+            let slack_installation = slack_tokens.get(&task.team_id)
                 .expect(format!("Could not find slack installation for team: {}, task: {}", task.team, task.task_id).as_str());
     
+            let pagerduty_token = &task.pager_duty_token.clone()
+                .or(slack_installation.pager_duty_token.clone())
+                .expect("No PagerDuty token setup for the current Slack installation");
+
             update_user_group(
                 http_client.clone(),
-                &task.pager_duty_token,
+                &pagerduty_token,
                 &task.pager_duty_schedule_id,
                 Utc::now(),
-                slack_api_key,
+                &slack_installation.access_token,
                 &task.channel_id,
                 &task.user_group_handle,
             ).await?;
