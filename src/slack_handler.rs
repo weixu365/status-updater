@@ -43,11 +43,17 @@ struct SetupPagerdutyArgs {
     pagerduty_api_key: String,
 }
 
+#[derive(Debug, Args)]
+struct ListSchedulesArgs {
+    #[arg(long)]
+    all: Option<bool>,
+}
+
 #[derive(Debug, Subcommand)]
 enum Command {
     Schedule(ScheduleArgs),
+    ListSchedules(ListSchedulesArgs),
     SetupPagerduty(SetupPagerdutyArgs),
-    List,
     New,
 }
 
@@ -257,7 +263,7 @@ pub async fn handle_slack_command(env: &str, request_header: HeaderMap<HeaderVal
                 return Ok(response(500, format!("Can't process slack command due to save to update scheduler\nCommand: {} {}", command, text)))
             }
             
-            format!("Update user group: {}|{} based on pagerduty schedule: {}, at: {}", task.user_group_id, task.user_group_handle, &task.pager_duty_schedule_id, &task.cron)
+            vec!(format!("Update user group: {}|{} based on pagerduty schedule: {}, at: {}", task.user_group_id, task.user_group_handle, &task.pager_duty_schedule_id, &task.cron))
         },
         Some(Command::SetupPagerduty(args)) => {
             let config = Config::new(env);
@@ -268,19 +274,33 @@ pub async fn handle_slack_command(env: &str, request_header: HeaderMap<HeaderVal
 
             slack_installations_db.update_pagerduty_token(team_id, enterprise_id, &args.pagerduty_api_key).await?;
 
-            format!("Setup pagerduty with api key")
+            vec!(format!("Setup pagerduty with api key"))
         },
-        Some(Command::List) => format!("Show current schedules"),
-        Some(Command::New) => format!("Show wizard to add new schedule"),
-        None => format!("default command")
+        Some(Command::ListSchedules(args)) => {
+            let db = ScheduledTasksDynamodb::new(&aws_config, format!("on-call-support-schedules-{}", env), encryption);
+            let tasks = db.list_scheduled_tasks().await?;
+
+            tasks.into_iter()
+                .map(|t| format!("## {}\nUpdate {} on {}\nNext schedule: {}", t.channel_name, t.user_group_handle, t.cron, t.next_update_time))
+                .collect()
+        },
+        Some(Command::New) => vec!(format!("Show wizard to add new schedule")),
+        None => vec!(format!("default command"))
     };
     
-    Ok(response(200, format!("Received slack command. \n{}\nAction: {}", command, response_body)))
+    let sections = response_body.into_iter()
+        .map(|p| format!(r#"{{"type": "section", "text": {{ "type": "mrkdwn", "text": "{}" }} }}"#, p))
+        .collect::<Vec<String>>()
+        .join(",\n")
+    ;
+
+    Ok(response(200, format!(r#"{{ "blocks": [{}] }}"#, sections)))
 }
 
 pub fn response(status_code: i64, body: String) -> ApiGatewayProxyResponse {
     let mut response_headers = HeaderMap::new();
     response_headers.insert("response_type", "in_channel".parse().unwrap());
+    response_headers.insert("Content-type", "application/json".parse().unwrap());
 
     ApiGatewayProxyResponse {
         status_code,
