@@ -1,7 +1,7 @@
 use aws_config::SdkConfig;
 use aws_sdk_dynamodb::{Client, types::AttributeValue};
 
-use crate::{errors::AppError, encryption::{Encryption, EncryptedData}};
+use crate::{errors::AppError, encryptor::{Encryptor, EncryptedData}};
 use crate::db::dynamodb_client::{get_attribute, get_optional_attribute};
 
 use super::scheduled_task::ScheduledTask;
@@ -9,12 +9,12 @@ use super::scheduled_task::ScheduledTask;
 pub struct ScheduledTasksDynamodb {
     client: Client,
     table_name: String,
-    encryption: Encryption,
+    encryptor: Encryptor,
 }
 
 impl ScheduledTasksDynamodb {
-    pub fn new(config: &SdkConfig, table_name: String, encryption: Encryption) -> ScheduledTasksDynamodb {
-        ScheduledTasksDynamodb{ client: Client::new(&config), table_name, encryption }
+    pub fn new(config: &SdkConfig, table_name: String, encryptor: Encryptor) -> ScheduledTasksDynamodb {
+        ScheduledTasksDynamodb{ client: Client::new(&config), table_name, encryptor }
     }
    
     fn team(&self, team_id: &str, workspace_id: &str) -> String {
@@ -25,7 +25,7 @@ impl ScheduledTasksDynamodb {
         let t = task.clone();
 
         let encrypted_pagerduty_token_json = t.pager_duty_token
-            .map(|token| self.encryption.encrypt(&token).expect("Failed to encrypt PagerDuty api key"))
+            .map(|token| self.encryptor.encrypt(&token).expect("Failed to encrypt PagerDuty api key"))
             .map(|encrypted| serde_json::to_string(&encrypted).unwrap())
             .unwrap_or_default()
         ;
@@ -131,12 +131,12 @@ impl ScheduledTasksDynamodb {
                     } else {
                         let encrypted_token: EncryptedData = serde_json::from_str(&encrypted_token_json).expect("couldn't parse encrypted pagerduty token json");
 
-                        Some(self.encryption.decrypt(&encrypted_token).expect("failed to decrypt pagerduty token"))
+                        Some(self.encryptor.decrypt(&encrypted_token).expect("failed to decrypt pagerduty token"))
                     }
                 ).flatten();
 
                 // let encrypted_pagerduty_token: EncryptedData = serde_json::from_str(&pagerduty_token_json).expect("couldn't parse encrypted pagerduty token json");
-                // let pager_duty_token = self.encryption.decrypt(&encrypted_pagerduty_token).expect("failed to decrypt pagerduty token");
+                // let pager_duty_token = self.encryptor.decrypt(&encrypted_pagerduty_token).expect("failed to decrypt pagerduty token");
 
                 ScheduledTask {
                     team: get_attribute(&item, "team"),

@@ -3,7 +3,7 @@ pub mod config;
 pub mod cron;
 pub mod db;
 pub mod timestamp;
-pub mod encryption;
+pub mod encryptor;
 pub mod errors;
 mod http_client;
 pub mod user_group_updater;

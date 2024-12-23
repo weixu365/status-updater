@@ -1,0 +1,30 @@
+display_information:
+  name: On-Call Support
+features:
+  bot_user:
+    display_name: On-Call Support
+    always_online: false
+  slash_commands:
+    - command: /on-call-support
+      url: https://hqicbrcit9.execute-api.ap-southeast-2.amazonaws.com/dev/slack/command
+      description: Update user group to on-call user
+      usage_hint: schedule on-call user to @mk-support-test at 9am on Friday
+      should_escape: false
+oauth_config:
+  redirect_urls:
+    - https://hqicbrcit9.execute-api.ap-southeast-2.amazonaws.com/dev/slack/oauth
+  scopes:
+    bot:
+      - app_mentions:read
+      - channels:read
+      - channels:write.topic
+      - chat:write
+      - commands
+      - usergroups:read
+      - usergroups:write
+      - users:read
+      - users:read.email
+settings:
+  org_deploy_enabled: false
+  socket_mode_enabled: false
+  token_rotation_enabled: false

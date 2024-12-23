@@ -14,24 +14,24 @@ pub struct EncryptedData {
 }
 
 #[derive(Clone)]
-pub struct Encryption {
+pub struct Encryptor {
     cipher: XChaCha20Poly1305,
 }
 
-impl Encryption {
-    pub fn new(key: &str) -> Encryption {
+impl Encryptor {
+    pub fn new(key: &str) -> Encryptor {
         let cipher = XChaCha20Poly1305::new(key.as_bytes().into());
     
-        Encryption {
+        Encryptor {
             cipher,
         }
     }
 
-    pub fn with(key_base64: &str) -> Encryption {
+    pub fn with(key_base64: &str) -> Encryptor {
         let key = base64::decode_no_pad(key_base64.as_ref()).expect("Failed to decode key, expecting base64 encoded");
         let cipher = XChaCha20Poly1305::new(key.as_slice().into());
     
-        Encryption {
+        Encryptor {
             cipher,
         }
     }
@@ -59,22 +59,22 @@ impl Encryption {
 
 #[cfg(test)]
 mod tests {
-    use crate::encryption::{Encryption, EncryptedData};
+    use crate::encryptor::{Encryptor, EncryptedData};
 
     #[test]
     fn encrypt_decrypt_string() {
         let key_plaintext = "plain text key which should be s";
         
-        let encryption = Encryption::new(&key_plaintext);
+        let encryptor = Encryptor::new(&key_plaintext);
         
         let original = "plain text string";
-        let encrypted = encryption.encrypt(original).expect("Failed to encrypt text");
+        let encrypted = encryptor.encrypt(original).expect("Failed to encrypt text");
 
         let encrypted_json = serde_json::to_string(&encrypted).unwrap();
         println!("encrypted: {:?}", encrypted_json);
 
         let deserialized_from_json: EncryptedData = serde_json::from_str(&encrypted_json).expect("couldn't parse json");
-        let decrypted = encryption.decrypt(&deserialized_from_json).expect("failed to decrypt encrypted data");
+        let decrypted = encryptor.decrypt(&deserialized_from_json).expect("failed to decrypt encrypted data");
         
         assert_eq!(decrypted, original);
     }

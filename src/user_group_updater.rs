@@ -1,7 +1,8 @@
 use std::{sync::Arc, collections::HashMap, env};
 
+use aws_config::SdkConfig;
 use futures::StreamExt;
-use crate::{config::Config, db::{SlackInstallation, SlackInstallationsDynamoDb}, encryption::Encryption, scheduled_tasks::{EventBridgeScheduler, ScheduledTasksDynamodb}, secrets::SecretsClient};
+use crate::{config::Config, db::{SlackInstallation, SlackInstallationsDynamoDb}, encryptor::{self, Encryptor}, scheduled_tasks::{EventBridgeScheduler, ScheduledTasksDynamodb}, secrets::SecretsClient};
 
 use chrono::{Utc, Duration, DateTime};
 use reqwest::Client;
@@ -71,45 +72,50 @@ pub async fn update_user_group(
     Ok(())
 }
 
+async fn build_encryptor(aws_config: &SdkConfig, secret_name: &str) -> Result<Encryptor, AppError> {
+    let secrets_client = SecretsClient::new(&aws_config);
+    let encryption_key = secrets_client.get_secret(secret_name).await?;
+    
+    Ok(Encryptor::new(&encryption_key.encryption_key))
+}
+
 pub async fn update_user_groups(env: &str) -> Result<(), AppError> {
     let lambda_arn = env::var("UPDATE_USER_GROUP_LAMBDA")?;
     let lambda_role = env::var("UPDATE_USER_GROUP_LAMBDA_ROLE")?;
     let config = Config::new(env);
-    
-    let http_client = Arc::new(Box::new(build_http_client()?));
-
     let aws_config = ::aws_config::load_from_env().await;
+    let http_client = Arc::new(Box::new(build_http_client()?));
     let scheduler = EventBridgeScheduler::new(&aws_config, config.schedule_name_prefix, lambda_arn, lambda_role);
-    
-    let secrets_client = SecretsClient::new(&aws_config);
-    let encryption_key = secrets_client.get_secret(&config.secret_name).await?;
-    let encryption = Encryption::new(&encryption_key.encryption_key);
+    let encryptor = build_encryptor(&aws_config, &config.secret_name).await?;
 
-    let slack_installations_db = SlackInstallationsDynamoDb::new(&aws_config, config.installations_table_name, encryption.clone());
+    let slack_installations_db = SlackInstallationsDynamoDb::new(&aws_config, config.installations_table_name, encryptor.clone());
+    let scheduled_tasks_db = ScheduledTasksDynamodb::new(&aws_config, config.schedules_table_name, encryptor.clone());
+    
     let slack_tokens: HashMap<String, SlackInstallation> = slack_installations_db.list_installations().await?
         .into_iter()
         .map(|i| (i.team_id.clone(), i))
         .collect();
-    let scheduled_tasks_db = ScheduledTasksDynamodb::new(&aws_config, config.schedules_table_name, encryption.clone());
 
     let tasks = scheduled_tasks_db.list_scheduled_tasks().await?;
+    println!("Found {} tasks", tasks.len());
+
     let mut timestamp_of_next_trigger = i64::MAX;
     let mut next_task = None;
     let start_of_the_update = Utc::now();
-
-    println!("Found {} tasks", tasks.len());
     for mut task in tasks {
         if task.next_update_timestamp_utc > 0 && task.next_update_timestamp_utc <= Utc::now().timestamp() {
             println!("Updating user group for task {}, scheduled at: {}", task.task_id, task.cron);
 
+            //TODO: continue if failed to update the current task, e.g. token is invalid or user group is not found for a specific task
+
             let slack_installation = slack_tokens.get(&task.team_id)
                 .expect(format!("Could not find slack installation for team: {}, task: {}", task.team, task.task_id).as_str());
-    
+
             let pagerduty_token = &task.pager_duty_token.clone()
                 .or(slack_installation.pager_duty_token.clone())
                 .expect("No PagerDuty token setup for the current Slack installation");
 
-            update_user_group(
+            let update_result = update_user_group(
                 http_client.clone(),
                 &pagerduty_token,
                 &task.pager_duty_schedule_id,
@@ -117,18 +123,25 @@ pub async fn update_user_groups(env: &str) -> Result<(), AppError> {
                 &slack_installation.access_token,
                 &task.channel_id,
                 &task.user_group_handle,
-            ).await?;
-    
-            task.last_updated_at = Utc::now().to_rfc3339();
+            ).await;
 
-            if let Some(task_next_schedule) = task.calculate_next_schedule(&Utc::now()) {
-                task.next_update_timestamp_utc = task_next_schedule.next_timestamp_utc;
-                task.next_update_time = task_next_schedule.next_datetime.to_rfc3339();
-            } else {
-                task.next_update_timestamp_utc = -1;
-                task.next_update_time = "".to_string();
-            }
-            scheduled_tasks_db.update_next_schedule(&task).await?;
+            match update_result {
+                Ok(_) => {
+                    task.last_updated_at = Utc::now().to_rfc3339();
+
+                    if let Some(task_next_schedule) = task.calculate_next_schedule(&Utc::now()) {
+                        task.next_update_timestamp_utc = task_next_schedule.next_timestamp_utc;
+                        task.next_update_time = task_next_schedule.next_datetime.to_rfc3339();
+                    } else {
+                        task.next_update_timestamp_utc = -1;
+                        task.next_update_time = "".to_string();
+                    }
+                    scheduled_tasks_db.update_next_schedule(&task).await?;
+                }
+                Err(err) => {
+                    println!("Failed to update user group for task: {}, error: {}", task.task_id, err);
+                }
+            }            
         } else {
             println!("Skipped {}, next trigger is: {} which is: {} greater than {}", task.task_id, task.next_update_time, task.next_update_timestamp_utc, Utc::now().timestamp());
         }

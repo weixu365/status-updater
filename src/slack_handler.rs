@@ -4,7 +4,7 @@ use aws_lambda_events::{event::apigw::ApiGatewayProxyResponse, encodings::Body, 
 use chrono::{Local, Utc};
 use chrono_tz::Tz;
 use std::str::FromStr;
-use crate::{scheduled_tasks::{ScheduledTask, ScheduledTasksDynamodb, EventBridgeScheduler}, cron::get_next_schedule_from, secrets::SecretsClient, encryption::Encryption, errors::AppError, build_http_client, service_provider::slack::swap_slack_access_token, db::{SlackInstallation, SlackInstallationsDynamoDb}, config::Config};
+use crate::{scheduled_tasks::{ScheduledTask, ScheduledTasksDynamodb, EventBridgeScheduler}, cron::get_next_schedule_from, secrets::SecretsClient, encryptor::Encryptor, errors::AppError, build_http_client, service_provider::slack::swap_slack_access_token, db::{SlackInstallation, SlackInstallationsDynamoDb}, config::Config};
 use form_urlencoded;
 use ring::hmac;
 use clap::{Args, Subcommand};
@@ -24,7 +24,7 @@ struct ScheduleArgs {
     #[arg(long)]
     user_group: String,
 
-    #[arg(long)]
+    #[arg(long, default_value = "0 9 ? * MON-FRI *")]
     pagerduty_schedule: String,
 
     #[arg(long)]
@@ -83,12 +83,12 @@ pub async fn handle_slack_oauth(env: &str, query_map: QueryMap) -> Result<ApiGat
             let secrets_client = SecretsClient::new(&config);
             let secrets = secrets_client.get_secret("on-call-support/secrets").await?;
 
-            let encryption = Encryption::new(&secrets.encryption_key);
+            let encryptor = Encryptor::new(&secrets.encryption_key);
 
             let oauth_response = swap_slack_access_token(&http_client, temporary_code, &secrets.slack_client_id, &secrets.slack_client_secret).await?;
             
             // Save to dynamodb
-            let db = SlackInstallationsDynamoDb::new(&config, format!("on-call-support-installations-{}", env), encryption);
+            let db = SlackInstallationsDynamoDb::new(&config, format!("on-call-support-installations-{}", env), encryptor);
             let installation = SlackInstallation {
                 team_id: oauth_response.team.id,
                 team_name: oauth_response.team.name,
@@ -191,7 +191,7 @@ pub async fn handle_slack_command(env: &str, request_header: HeaderMap<HeaderVal
     
     let aws_config = ::aws_config::load_from_env().await;
     let secrets = SecretsClient::new(&aws_config).get_secret("on-call-support/secrets").await?;
-    let encryption = Encryption::new(&secrets.encryption_key);
+    let encryptor = Encryptor::new(&secrets.encryption_key);
 
     let response_body = match arg.unwrap().command {
         Some(Command::Schedule(arg)) => {
@@ -216,7 +216,7 @@ pub async fn handle_slack_command(env: &str, request_header: HeaderMap<HeaderVal
             let lambda_arn = env::var("UPDATE_USER_GROUP_LAMBDA")?;
             let lambda_role = env::var("UPDATE_USER_GROUP_LAMBDA_ROLE")?;
 
-            let db = ScheduledTasksDynamodb::new(&aws_config, format!("on-call-support-schedules-{}", env), encryption);
+            let db = ScheduledTasksDynamodb::new(&aws_config, format!("on-call-support-schedules-{}", env), encryptor);
             let scheduler = EventBridgeScheduler::new(&aws_config, format!("on-call-support-dev_UpdateUserGroupSchedule_"), lambda_arn, lambda_role);
 
             let timezone = Tz::from_str(&arg.timezone.unwrap_or("UTC".to_string())).unwrap();
@@ -267,7 +267,7 @@ pub async fn handle_slack_command(env: &str, request_header: HeaderMap<HeaderVal
         },
         Some(Command::SetupPagerduty(args)) => {
             let config = Config::new(env);
-            let slack_installations_db = SlackInstallationsDynamoDb::new(&aws_config, config.installations_table_name, encryption.clone());
+            let slack_installations_db = SlackInstallationsDynamoDb::new(&aws_config, config.installations_table_name, encryptor.clone());
 
             //TODO: validate if the installation exists
             //TODO: validate if the pagerduty token valid
@@ -277,7 +277,7 @@ pub async fn handle_slack_command(env: &str, request_header: HeaderMap<HeaderVal
             vec!(format!("Setup pagerduty with api key"))
         },
         Some(Command::ListSchedules(args)) => {
-            let db = ScheduledTasksDynamodb::new(&aws_config, format!("on-call-support-schedules-{}", env), encryption);
+            let db = ScheduledTasksDynamodb::new(&aws_config, format!("on-call-support-schedules-{}", env), encryptor);
             let tasks = db.list_scheduled_tasks().await?;
 
             tasks.into_iter()

@@ -1,4 +1,4 @@
-use crate::{errors::AppError, scheduled_tasks::ScheduledTask, secrets::SecretsClient, encryption::Encryption};
+use crate::{errors::AppError, scheduled_tasks::ScheduledTask, secrets::SecretsClient, encryptor::Encryptor};
 
 use super::scheduled_tasks_dynamodb::ScheduledTasksDynamodb;
 use chrono::Utc;
@@ -7,8 +7,8 @@ async fn create_db() -> Result<ScheduledTasksDynamodb, AppError> {
     let config = ::aws_config::load_from_env().await;
     let secrets_client = SecretsClient::new(&config);
     let encryption_key = secrets_client.get_secret("on-call-support/secrets").await?;
-    let encryption = Encryption::new(&encryption_key.encryption_key);
-    let db = ScheduledTasksDynamodb::new(&config, "on-call-support-schedules-dev".to_string(), encryption);
+    let encryptor = Encryptor::new(&encryption_key.encryption_key);
+    let db = ScheduledTasksDynamodb::new(&config, "on-call-support-schedules-dev".to_string(), encryptor);
 
     Ok(db)
 }

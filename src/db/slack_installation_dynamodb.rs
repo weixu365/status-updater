@@ -2,7 +2,7 @@ use aws_config::SdkConfig;
 use aws_sdk_dynamodb::{Client, types::AttributeValue};
 use chrono::Utc;
 
-use crate::{encryption::Encryption, errors::AppError};
+use crate::{encryptor::Encryptor, errors::AppError};
 use super::dynamodb_client::{get_attribute, get_optional_attribute};
 
 use super::SlackInstallation;
@@ -10,12 +10,12 @@ use super::SlackInstallation;
 pub struct SlackInstallationsDynamoDb {
     client: Client,
     table_name: String,
-    encryption: Encryption,
+    encryptor: Encryptor,
 }
 
 impl SlackInstallationsDynamoDb {
-    pub fn new(config: &SdkConfig, table_name: String, encryption: Encryption) -> SlackInstallationsDynamoDb {
-        SlackInstallationsDynamoDb{ client: Client::new(&config), table_name, encryption }
+    pub fn new(config: &SdkConfig, table_name: String, encryptor: Encryptor) -> SlackInstallationsDynamoDb {
+        SlackInstallationsDynamoDb{ client: Client::new(&config), table_name, encryptor }
     }
    
     pub fn installation_id(&self, slack_team_id: &str, slack_enterprise_id: &str) -> String {
@@ -26,7 +26,7 @@ impl SlackInstallationsDynamoDb {
         let now = Utc::now();
 
         let t = installation.clone();
-        let encrypted_token = self.encryption.encrypt(&t.access_token)?;
+        let encrypted_token = self.encryptor.encrypt(&t.access_token)?;
         let encrypted_token_json = serde_json::to_string(&encrypted_token).unwrap();
 
         let builder = self.client
@@ -59,7 +59,7 @@ impl SlackInstallationsDynamoDb {
     pub async fn update_pagerduty_token(&self, slack_team_id: String, slack_enterprise_id: String, pagerduty_token: &str) -> Result<(), AppError> {
         let now = Utc::now();
         let installation_id = self.installation_id(&slack_team_id, &slack_enterprise_id);
-        let encrypted_token = self.encryption.encrypt(pagerduty_token)?;
+        let encrypted_token = self.encryptor.encrypt(pagerduty_token)?;
         let encrypted_token_json = serde_json::to_string(&encrypted_token).unwrap();
 
         let request = self.client
@@ -92,12 +92,12 @@ impl SlackInstallationsDynamoDb {
                 let team_id = get_attribute(&item, "team_id");
                 let encrypted_token_json = get_attribute(&item, "access_token");
                 let encrypted_token = serde_json::from_str(&encrypted_token_json).unwrap();
-                let access_token = self.encryption.decrypt(&encrypted_token)
+                let access_token = self.encryptor.decrypt(&encrypted_token)
                     .expect(format!("Couldn't decrypt slack token for installation {}", team_id).as_str());
 
                 let pagerduty_token = get_optional_attribute(&item, "pagerduty_token")
                     .map(|json| serde_json::from_str(&json).unwrap())
-                    .map(|encrypted| self.encryption.decrypt(&encrypted))
+                    .map(|encrypted| self.encryptor.decrypt(&encrypted))
                     .map(|token| token.expect(format!("Couldn't decrypt pagerduty token for installation {}", team_id).as_str()))
                 ;
 
