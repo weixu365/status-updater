@@ -79,6 +79,42 @@ async fn build_encryptor(aws_config: &SdkConfig, secret_name: &str) -> Result<En
     Ok(Encryptor::new(&encryption_key.encryption_key))
 }
 
+async fn run_task(task: &ScheduledTask, slack_tokens: &HashMap<String, SlackInstallation>, http_client: Arc<Box<Client>>, scheduled_tasks_db: &ScheduledTasksDynamodb) -> Result<(), AppError>{
+    println!("Updating user group for task {}, scheduled at: {}", task.task_id, task.cron);
+
+    let slack_installation = slack_tokens.get(&task.team_id)
+        .expect(format!("Could not find slack installation for team: {}, task: {}", task.team, task.task_id).as_str());
+
+    let pagerduty_token = &task.pager_duty_token.clone()
+        .or(slack_installation.pager_duty_token.clone())
+        .expect("No PagerDuty token setup for the current Slack installation");
+
+    update_user_group(
+        http_client.clone(),
+        &pagerduty_token,
+        &task.pager_duty_schedule_id,
+        Utc::now(),
+        &slack_installation.access_token,
+        &task.channel_id,
+        &task.user_group_handle,
+    ).await?;
+
+    let mut updated_task = task.clone();
+    updated_task.last_updated_at = Utc::now().to_rfc3339();
+
+    if let Some(task_next_schedule) = updated_task.calculate_next_schedule(&Utc::now()) {
+        updated_task.next_update_timestamp_utc = task_next_schedule.next_timestamp_utc;
+        updated_task.next_update_time = task_next_schedule.next_datetime.to_rfc3339();
+    } else {
+        updated_task.next_update_timestamp_utc = -1;
+        updated_task.next_update_time = "".to_string();
+    }
+
+    scheduled_tasks_db.update_next_schedule(&updated_task).await?;
+    
+    Ok(())
+}
+
 pub async fn update_user_groups(env: &str) -> Result<(), AppError> {
     let lambda_arn = env::var("UPDATE_USER_GROUP_LAMBDA")?;
     let lambda_role = env::var("UPDATE_USER_GROUP_LAMBDA_ROLE")?;
@@ -102,46 +138,12 @@ pub async fn update_user_groups(env: &str) -> Result<(), AppError> {
     let mut timestamp_of_next_trigger = i64::MAX;
     let mut next_task = None;
     let start_of_the_update = Utc::now();
-    for mut task in tasks {
+    for task in tasks {
         if task.next_update_timestamp_utc > 0 && task.next_update_timestamp_utc <= Utc::now().timestamp() {
-            println!("Updating user group for task {}, scheduled at: {}", task.task_id, task.cron);
-
-            //TODO: continue if failed to update the current task, e.g. token is invalid or user group is not found for a specific task
-
-            let slack_installation = slack_tokens.get(&task.team_id)
-                .expect(format!("Could not find slack installation for team: {}, task: {}", task.team, task.task_id).as_str());
-
-            let pagerduty_token = &task.pager_duty_token.clone()
-                .or(slack_installation.pager_duty_token.clone())
-                .expect("No PagerDuty token setup for the current Slack installation");
-
-            let update_result = update_user_group(
-                http_client.clone(),
-                &pagerduty_token,
-                &task.pager_duty_schedule_id,
-                Utc::now(),
-                &slack_installation.access_token,
-                &task.channel_id,
-                &task.user_group_handle,
-            ).await;
-
-            match update_result {
-                Ok(_) => {
-                    task.last_updated_at = Utc::now().to_rfc3339();
-
-                    if let Some(task_next_schedule) = task.calculate_next_schedule(&Utc::now()) {
-                        task.next_update_timestamp_utc = task_next_schedule.next_timestamp_utc;
-                        task.next_update_time = task_next_schedule.next_datetime.to_rfc3339();
-                    } else {
-                        task.next_update_timestamp_utc = -1;
-                        task.next_update_time = "".to_string();
-                    }
-                    scheduled_tasks_db.update_next_schedule(&task).await?;
-                }
-                Err(err) => {
-                    println!("Failed to update user group for task: {}, error: {}", task.task_id, err);
-                }
-            }            
+            let task_result = run_task(&task, &slack_tokens, http_client.clone(), &scheduled_tasks_db).await;
+            if let Err(err) = task_result {
+                println!("Failed to update user group for task: {}, error: {}", task.task_id, err);
+            }
         } else {
             println!("Skipped {}, next trigger is: {} which is: {} greater than {}", task.task_id, task.next_update_time, task.next_update_timestamp_utc, Utc::now().timestamp());
         }
