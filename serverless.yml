@@ -41,6 +41,12 @@ functions:
       artifact: target/lambda/update_user_groups_lambda.zip
     maximumRetryAttempts: 2
     timeout: 900
+    events:
+      - schedule:
+          method: scheduler
+          rate: cron(10 9 ? * MON-FRI *)
+          timezone: Australia/Melbourne
+          enabled: true
 
   SlackRequestHandler:
     handler: on-call-support.slack_request_handler_lambda
@@ -72,6 +78,12 @@ functions:
     #       enabled: false
 
 resources:
+  Outputs:
+    UpdateUserGroupsLambdaArn:
+      Value: !GetAtt UpdateUserGroupsLambdaFunction.Arn
+    UpdateUserGroupsLambdaRoleArn:
+      Value: !GetAtt LambdaRole.Arn
+
   Resources:
     OnCallSupportScheduledTasks:
       Type: AWS::DynamoDB::Table
