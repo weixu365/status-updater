@@ -17,6 +17,6 @@
   },
   "homepage": "https://github.com/weixu365/status-updater#readme",
   "devDependencies": {
-    "serverless": "^3.32.2"
+    "serverless": "^3.40.0"
   }
 }

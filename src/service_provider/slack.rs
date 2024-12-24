@@ -7,6 +7,10 @@ use serde_json::{json, Value, Error};
 
 use crate::{errors::AppError, base64::encode_with_pad};
 
+
+#[derive(Deserialize, Debug)]
+struct EmptyResponse;
+
 #[derive(Deserialize, Debug)]
 struct SlackResponse<T> {
     ok: bool,
@@ -41,7 +45,7 @@ struct PostMessageResponse {
 }
 
 #[derive(Deserialize, Debug, Display)]
-#[display(fmt = "Channel ({}, {}, {}, {})", name, is_channel, is_group, is_private)]
+#[display("Channel ({}, {}, {}, {})", name, is_channel, is_group, is_private)]
 pub struct Channel {
     pub name: String,
     pub is_channel: bool,
@@ -50,14 +54,14 @@ pub struct Channel {
 }
 
 #[derive(Deserialize, Debug, Display)]
-#[display(fmt = "User ({}, {})", id, name)]
+#[display("User ({}, {})", id, name)]
 pub struct User {
     pub id: String,
     pub name: String,
 }
 
 #[derive(Deserialize, Debug, Display)]
-#[display(fmt = "UserGroup ({}, {}, {})", id, name, handle)]
+#[display("UserGroup ({}, {}, {})", id, name, handle)]
 pub struct UserGroup {
     pub id: String,
     pub name: String,
@@ -136,7 +140,7 @@ impl Slack {
             "users": users,
         });
 
-        self.send_request::<_, ()>("usergroups.users.update", Method::POST, None, Some(&payload)).await?;
+        self.send_request::<EmptyResponse, ()>("usergroups.users.update", Method::POST, None, Some(&payload)).await?;
 
         Ok(())
     }

@@ -1,4 +1,5 @@
 use std::{collections::HashMap, env};
+use aws_config::BehaviorVersion;
 use aws_lambda_events::{event::apigw::ApiGatewayProxyResponse, encodings::Body, http::{HeaderMap, HeaderValue}, query_map::QueryMap};
 
 use chrono::{Local, Utc};
@@ -79,7 +80,7 @@ pub async fn handle_slack_oauth(env: &str, query_map: QueryMap) -> Result<ApiGat
     match code_parameter {
         Some(temporary_code) => {
             let http_client = build_http_client()?;
-            let config = ::aws_config::load_from_env().await;
+            let config = ::aws_config::load_defaults(BehaviorVersion::latest()).await;
             let secrets_client = SecretsClient::new(&config);
             let secrets = secrets_client.get_secret("on-call-support/secrets").await?;
 
@@ -189,7 +190,7 @@ pub async fn handle_slack_command(env: &str, request_header: HeaderMap<HeaderVal
 
     // println!("Parsed arg: {:?}", arg);
     
-    let aws_config = ::aws_config::load_from_env().await;
+    let aws_config = ::aws_config::load_defaults(BehaviorVersion::latest()).await;
     let secrets = SecretsClient::new(&aws_config).get_secret("on-call-support/secrets").await?;
     let encryptor = Encryptor::new(&secrets.encryption_key);
 
@@ -276,7 +277,7 @@ pub async fn handle_slack_command(env: &str, request_header: HeaderMap<HeaderVal
 
             vec!(format!("Setup pagerduty with api key"))
         },
-        Some(Command::ListSchedules(args)) => {
+        Some(Command::ListSchedules(_args)) => {
             let db = ScheduledTasksDynamodb::new(&aws_config, format!("on-call-support-schedules-{}", env), encryptor);
             let tasks = db.list_scheduled_tasks().await?;
 

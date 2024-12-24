@@ -1,8 +1,8 @@
 use std::{sync::Arc, collections::HashMap, env};
 
-use aws_config::SdkConfig;
+use aws_config::{BehaviorVersion, SdkConfig};
 use futures::StreamExt;
-use crate::{config::Config, db::{SlackInstallation, SlackInstallationsDynamoDb}, encryptor::{self, Encryptor}, scheduled_tasks::{EventBridgeScheduler, ScheduledTasksDynamodb}, secrets::SecretsClient};
+use crate::{config::Config, db::{SlackInstallation, SlackInstallationsDynamoDb}, encryptor::Encryptor, scheduled_tasks::{EventBridgeScheduler, ScheduledTask, ScheduledTasksDynamodb}, secrets::SecretsClient};
 
 use chrono::{Utc, Duration, DateTime};
 use reqwest::Client;
@@ -83,7 +83,7 @@ pub async fn update_user_groups(env: &str) -> Result<(), AppError> {
     let lambda_arn = env::var("UPDATE_USER_GROUP_LAMBDA")?;
     let lambda_role = env::var("UPDATE_USER_GROUP_LAMBDA_ROLE")?;
     let config = Config::new(env);
-    let aws_config = ::aws_config::load_from_env().await;
+    let aws_config = ::aws_config::load_defaults(BehaviorVersion::latest()).await;
     let http_client = Arc::new(Box::new(build_http_client()?));
     let scheduler = EventBridgeScheduler::new(&aws_config, config.schedule_name_prefix, lambda_arn, lambda_role);
     let encryptor = build_encryptor(&aws_config, &config.secret_name).await?;

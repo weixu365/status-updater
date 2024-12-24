@@ -39,11 +39,13 @@ impl SecretsClient {
 
 #[cfg(test)]
 mod tests {
+    use aws_config::BehaviorVersion;
+
     use crate::{secrets::SecretsClient, errors::AppError};
 
     #[tokio::test]
     async fn encrypt_decrypt_string() -> Result<(), AppError>{
-        let config = ::aws_config::load_from_env().await;
+        let config = ::aws_config::load_defaults(BehaviorVersion::latest()).await;
         let client = SecretsClient::new(&config);
         let encryption_key = client.get_secret("on-call-support/secrets").await?;
         

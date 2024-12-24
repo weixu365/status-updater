@@ -157,6 +157,7 @@ impl EventBridgeScheduler {
 
 #[cfg(test)]
 mod tests {
+    use aws_config::BehaviorVersion;
     use chrono::Utc;
     use chrono_tz::Tz;
     use std::str::FromStr;
@@ -165,7 +166,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_update_next_schedule() -> Result<(), AppError>{
-        let config = ::aws_config::load_from_env().await;
+        let config = ::aws_config::load_defaults(BehaviorVersion::latest()).await;
         let scheduler_name_prefix = "on-call-support-dev_UpdateUserGroupSchedule_";
         let lambda_arn = "arn:aws:lambda:ap-southeast-2:807579936170:function:on-call-support-dev-UpdateUserGroups";
         let lambda_role_arn = "arn:aws:iam::807579936170:role/on-call-support-dev-ap-southeast-2-lambdaRole";
@@ -224,7 +225,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_list_schedules() -> Result<(), AppError> {
-        let config = ::aws_config::load_from_env().await;
+        let config = ::aws_config::load_defaults(BehaviorVersion::latest()).await;
         let lambda_arn = "arn:aws:lambda:ap-southeast-2:807579936170:function:on-call-support-dev-UpdateUserGroups";
         let lambda_role_arn = "arn:aws:iam::807579936170:role/on-call-support-dev-ap-southeast-2-lambdaRole";
         let scheduler = EventBridgeScheduler::new(&config, "on".to_string(), lambda_arn.to_string(), lambda_role_arn.to_string());
